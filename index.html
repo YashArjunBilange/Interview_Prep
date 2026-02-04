@@ -1,0 +1,367 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RIPIS - Real-Time Interview Practice</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #f5f7fa;
+            color: #333;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .header {
+            background-color: #2c3e50;
+            color: white;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+        .ethics-banner {
+            background-color: #e74c3c;
+            color: white;
+            padding: 10px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+            font-weight: bold;
+        }
+        .interview-panel {
+            background-color: white;
+            border-radius: 8px;
+            padding: 20px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        .feedback-panel {
+            background-color: #f8f9fa;
+            border-radius: 8px;
+            padding: 20px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .topic-badge {
+            margin-right: 5px;
+            margin-bottom: 5px;
+        }
+        .recording-indicator {
+            display: none;
+            color: #e74c3c;
+            font-weight: bold;
+        }
+        .hint-panel {
+            background-color: #eaf7fd;
+            border-left: 4px solid #3498db;
+            padding: 15px;
+            margin-top: 15px;
+            border-radius: 4px;
+        }
+        .btn-hint {
+            background-color: #3498db;
+            color: white;
+            margin-right: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header text-center">
+            <h1>Real-Time Interview Practice Intelligence System (RIPIS)</h1>
+            <p class="mb-0">AI-powered coaching for technical interviews</p>
+        </div>
+        
+        <div class="ethics-banner">
+            <i class="fas fa-exclamation-circle"></i> ETHICAL USE NOTICE: This system provides practice feedback only. 
+            AI assistance is clearly marked and should not be used in real assessments.
+        </div>
+        
+        <div class="row">
+            <div class="col-md-6">
+                <div class="interview-panel">
+                    <h3>Interview Session</h3>
+                    <div id="sessionStatus" class="alert alert-info">
+                        Session not started
+                    </div>
+                    
+                    <div class="mb-3">
+                        <button id="startBtn" class="btn btn-primary">Start Interview</button>
+                        <button id="endBtn" class="btn btn-danger" disabled>End Interview</button>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <h5>Current Question</h5>
+                        <div id="currentQuestion" class="alert alert-secondary">
+                            No question detected
+                        </div>
+                        <div id="questionTopics" class="mb-3"></div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <h5>Your Response</h5>
+                        <div class="form-floating mb-3">
+                            <textarea class="form-control" id="responseText" style="height: 100px"></textarea>
+                            <label for="responseText">Type your response here</label>
+                        </div>
+                        <div class="d-flex justify-content-between">
+                            <div>
+                                <button id="recordBtn" class="btn btn-outline-danger">
+                                    <i class="fas fa-microphone"></i> Record Audio
+                                </button>
+                                <span id="recordingIndicator" class="recording-indicator">
+                                    <i class="fas fa-circle"></i> Recording
+                                </span>
+                            </div>
+                            <button id="submitResponse" class="btn btn-success">Submit Response</button>
+                        </div>
+                    </div>
+                    
+                    <div class="hint-controls mb-3">
+                        <h5>Need Help?</h5>
+                        <button class="btn btn-hint btn-sm" data-level="1">Hint Level 1</button>
+                        <button class="btn btn-hint btn-sm" data-level="2">Hint Level 2</button>
+                        <button class="btn btn-hint btn-sm" data-level="3">Hint Level 3</button>
+                        <div class="form-text">Progressive hints to guide your thinking</div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="col-md-6">
+                <div class="feedback-panel">
+                    <h3>Real-Time Feedback</h3>
+                    <div id="feedbackContainer">
+                        <div class="alert alert-warning">
+                            Feedback will appear here as you practice
+                        </div>
+                    </div>
+                    
+                    <div id="hintContainer" class="hint-panel" style="display: none;">
+                        <h5><i class="fas fa-lightbulb"></i> AI Hint</h5>
+                        <div id="hintContent"></div>
+                        <small class="text-muted">This hint was generated by AI for practice purposes.</small>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://kit.fontawesome.com/a076d05399.js" crossorigin="anonymous"></script>
+    <script>
+        // Connect to Socket.IO server
+        const socket = io();
+        const user_id = 'user_' + Math.random().toString(36).substr(2, 9);
+        let mediaRecorder;
+        let audioChunks = [];
+        
+        // DOM elements
+        const startBtn = document.getElementById('startBtn');
+        const endBtn = document.getElementById('endBtn');
+        const recordBtn = document.getElementById('recordBtn');
+        const submitResponse = document.getElementById('submitResponse');
+        const recordingIndicator = document.getElementById('recordingIndicator');
+        const sessionStatus = document.getElementById('sessionStatus');
+        const currentQuestion = document.getElementById('currentQuestion');
+        const questionTopics = document.getElementById('questionTopics');
+        const responseText = document.getElementById('responseText');
+        const feedbackContainer = document.getElementById('feedbackContainer');
+        const hintContainer = document.getElementById('hintContainer');
+        const hintContent = document.getElementById('hintContent');
+        const hintButtons = document.querySelectorAll('.btn-hint');
+        
+        // Event listeners
+        startBtn.addEventListener('click', startInterview);
+        endBtn.addEventListener('click', endInterview);
+        recordBtn.addEventListener('click', toggleRecording);
+        submitResponse.addEventListener('click', submitResponseHandler);
+        
+        // Hint buttons
+        hintButtons.forEach(btn => {
+            btn.addEventListener('click', function() {
+                const level = this.getAttribute('data-level');
+                requestHint(level);
+            });
+        });
+        
+        // Socket.IO event handlers
+        socket.on('interview_status', function(data) {
+            sessionStatus.className = 'alert alert-success';
+            sessionStatus.innerHTML = `<strong>${data.status.toUpperCase()}</strong>: ${data.message}<br>
+                                      <small>${data.ethics_notice}</small>`;
+            startBtn.disabled = true;
+            endBtn.disabled = false;
+            
+            // Simulate question detection after 2 seconds
+            setTimeout(() => {
+                simulateQuestionDetection();
+            }, 2000);
+        });
+        
+        socket.on('question_processed', function(data) {
+            currentQuestion.className = 'alert alert-primary';
+            currentQuestion.innerHTML = `<strong>Question:</strong> ${data.question}<br>
+                                        <small>${data.notice}</small>`;
+            
+            // Display detected topics
+            questionTopics.innerHTML = '';
+            if (data.topics && data.topics.length > 0) {
+                const topicsTitle = document.createElement('h6');
+                topicsTitle.textContent = 'Detected Topics:';
+                questionTopics.appendChild(topicsTitle);
+                
+                const topicsContainer = document.createElement('div');
+                data.topics.forEach(topic => {
+                    const badge = document.createElement('span');
+                    badge.className = 'badge bg-info topic-badge';
+                    badge.textContent = topic;
+                    topicsContainer.appendChild(badge);
+                });
+                questionTopics.appendChild(topicsContainer);
+            }
+        });
+        
+        socket.on('feedback', function(data) {
+            const feedbackDiv = document.createElement('div');
+            feedbackDiv.className = 'alert alert-info';
+            
+            // Parse structured feedback
+            const feedbackLines = data.feedback.split(' ').filter(line => line.trim());
+            let feedbackHTML = `<strong>Your Response:</strong><p>${data.response || 'No response recorded'}</p>`;
+            feedbackHTML += `<strong>AI Feedback:</strong><ul>`;
+            
+            feedbackLines.forEach(line => {
+                if (line.startsWith('- ')) {
+                    const parts = line.split(':');
+                    if (parts.length > 1) {
+                        feedbackHTML += `<li><strong>${parts[0].substring(2)}</strong>: ${parts[1].trim()}</li>`;
+                    } else {
+                        feedbackHTML += `<li>${line.substring(2)}</li>`;
+                    }
+                }
+            });
+            
+            feedbackHTML += `</ul><small class="text-muted">${data.ethics_notice}</small>`;
+            feedbackDiv.innerHTML = feedbackHTML;
+            
+            // Add to feedback container
+            feedbackContainer.insertBefore(feedbackDiv, feedbackContainer.firstChild);
+        });
+        
+        socket.on('hint', function(data) {
+            hintContainer.style.display = 'block';
+            hintContent.innerHTML = `<p><strong>Level ${data.level} Hint:</strong> ${data.hint}</p>
+                                    <p class="text-muted"><small>${data.notice}</small></p>`;
+        });
+        
+        socket.on('error', function(data) {
+            const errorDiv = document.createElement('div');
+            errorDiv.className = 'alert alert-danger';
+            errorDiv.textContent = `Error: ${data.error}`;
+            feedbackContainer.insertBefore(errorDiv, feedbackContainer.firstChild);
+        });
+        
+        // Functions
+        function startInterview() {
+            socket.emit('start_interview', { user_id });
+        }
+        
+        function endInterview() {
+            sessionStatus.className = 'alert alert-warning';
+            sessionStatus.textContent = 'Interview session ended';
+            startBtn.disabled = false;
+            endBtn.disabled = true;
+            currentQuestion.className = 'alert alert-secondary';
+            currentQuestion.textContent = 'No question detected';
+            questionTopics.innerHTML = '';
+        }
+        
+        function toggleRecording() {
+            if (mediaRecorder && mediaRecorder.state === 'recording') {
+                mediaRecorder.stop();
+                recordBtn.className = 'btn btn-outline-danger';
+                recordingIndicator.style.display = 'none';
+            } else {
+                startRecording();
+                recordBtn.className = 'btn btn-danger';
+                recordingIndicator.style.display = 'inline';
+            }
+        }
+        
+        async function startRecording() {
+            audioChunks = [];
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            mediaRecorder = new MediaRecorder(stream);
+            
+            mediaRecorder.ondataavailable = event => {
+                audioChunks.push(event.data);
+            };
+            
+            mediaRecorder.onstop = async () => {
+                const audioBlob = new Blob(audioChunks, { type: 'audio/wav' });
+                const audioUrl = URL.createObjectURL(audioBlob);
+                
+                // For demo purposes, we'll just send the blob directly
+                // In a real app, you'd upload this to a server or process it
+                socket.emit('process_question', { 
+                    user_id, 
+                    audio: audioBlob 
+                });
+                
+                stream.getTracks().forEach(track => track.stop());
+            };
+            
+            mediaRecorder.start();
+            setTimeout(() => {
+                if (mediaRecorder.state === 'recording') {
+                    mediaRecorder.stop();
+                }
+            }, 10000); // Auto-stop after 10 seconds
+        }
+        
+        function submitResponseHandler() {
+            const textResponse = responseText.value.trim();
+            
+            if (textResponse || audioChunks.length > 0) {
+                socket.emit('process_response', { 
+                    user_id, 
+                    text: textResponse,
+                    audio: audioChunks.length > 0 ? new Blob(audioChunks, { type: 'audio/wav' }) : null
+                });
+                
+                responseText.value = '';
+                audioChunks = [];
+            } else {
+                alert('Please provide a response (text or audio) before submitting');
+            }
+        }
+        
+        function requestHint(level) {
+            socket.emit('request_hint', {
+                user_id,
+                level: parseInt(level)
+            });
+        }
+        
+        function simulateQuestionDetection() {
+            // In a real app, this would come from actual screen/audio analysis
+            const sampleQuestions = [
+                "Explain how you would implement a hash table from scratch.",
+                "Describe the difference between process and thread.",
+                "How would you design a URL shortening service?",
+                "Write a function to reverse a linked list.",
+                "Explain the CAP theorem and its implications."
+            ];
+            
+            const randomQuestion = sampleQuestions[Math.floor(Math.random() * sampleQuestions.length)];
+            socket.emit('process_question', {
+                user_id,
+                text: randomQuestion
+            });
+        }
+    </script>
+</body>
+</html>
